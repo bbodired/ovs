@@ -284,6 +284,48 @@ ka_mark_pmd_thread_sleep(int tid)
     }
 }
 
+/* Dispatch heartbeats from 'ovs_keepalive' thread. */
+void
+dispatch_heartbeats(void)
+{
+    struct ka_process_info *pinfo, *pinfo_next;
+
+    /* Iterates over the list of processes in 'cached_process_list' map. */
+    HMAP_FOR_EACH_SAFE (pinfo, pinfo_next, node,
+                        &ka_info.cached_process_list) {
+        if (pinfo->state == KA_STATE_UNUSED) {
+            continue;
+        }
+
+        switch (pinfo->state) {
+        case KA_STATE_UNUSED:
+            break;
+        case KA_STATE_ALIVE:
+            pinfo->state = KA_STATE_MISSING;
+            pinfo->last_seen_time = time_wall_msec();
+            break;
+        case KA_STATE_MISSING:
+            pinfo->state = KA_STATE_DEAD;
+            break;
+        case KA_STATE_DEAD:
+            pinfo->state = KA_STATE_GONE;
+            break;
+        case KA_STATE_GONE:
+            break;
+        case KA_STATE_SLEEP:
+            pinfo->state = KA_STATE_SLEEP;
+            pinfo->last_seen_time = time_wall_msec();
+            break;
+        default:
+            OVS_NOT_REACHED();
+        }
+
+        /* Invoke 'ka_update_thread_state' cb function to update state info
+         * in to 'ka_info.process_list' map. */
+        ka_info.relay_cb(pinfo->tid, pinfo->state, pinfo->last_seen_time);
+    }
+}
+
 void
 ka_init(const struct smap *ovs_other_config)
 {

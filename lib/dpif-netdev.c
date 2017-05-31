@@ -1058,14 +1058,26 @@ sorted_poll_thread_list(struct dp_netdev *dp,
 }
 
 static void *
-ovs_keepalive(void *f_ OVS_UNUSED)
+ovs_keepalive(void *f_)
 {
+    struct dp_netdev *dp = f_;
+
     pthread_detach(pthread_self());
 
     for (;;) {
+        bool hb_enable;
+        int n_pmds;
         uint64_t interval;
 
         interval = get_ka_interval();
+        n_pmds = cmap_count(&dp->poll_threads) - 1;
+        hb_enable = (n_pmds > 0) ? true : false;
+
+        /* Dispatch heartbeats only if pmd[s] exist. */
+        if (hb_enable) {
+            dispatch_heartbeats();
+        }
+
         xnanosleep(interval * 1000 * 1000);
     }
 
