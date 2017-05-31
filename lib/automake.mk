@@ -110,6 +110,8 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/json.c \
 	lib/jsonrpc.c \
 	lib/jsonrpc.h \
+	lib/keepalive.c \
+	lib/keepalive.h \
 	lib/lacp.c \
 	lib/lacp.h \
 	lib/latch.h \

@@ -34,6 +34,7 @@
 #include "hmapx.h"
 #include "if-notifier.h"
 #include "jsonrpc.h"
+#include "keepalive.h"
 #include "lacp.h"
 #include "mac-learning.h"
 #include "mcast-snooping.h"
@@ -506,6 +507,7 @@ bridge_exit(bool delete_datapath)
         bridge_destroy(br, delete_datapath);
     }
     ovsdb_idl_destroy(idl);
+    ka_destroy();
 }
 
 /* Looks at the list of managers in 'ovs_cfg' and extracts their remote IP
@@ -2959,6 +2961,7 @@ bridge_run(void)
     if (cfg) {
         netdev_set_flow_api_enabled(&cfg->other_config);
         dpdk_init(&cfg->other_config);
+        ka_init(&cfg->other_config);
     }
 
     /* Initialize the ofproto library.  This only needs to run once, but

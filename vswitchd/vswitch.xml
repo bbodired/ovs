@@ -568,6 +568,55 @@
           </p>
         </column>
       </group>
+
+      <group title="Keepalive">
+        <p>
+          The <code>keepalive</code> column contains key-value pairs that
+          report health of datapath threads in Open vSwitch.  These are updated
+          periodically (based on the keepalive-interval).
+        </p>
+
+        <column name="other_config" key="enable-keepalive"
+                type='{"type": "boolean"}'>
+          Keepalive is disabled by default to avoid overhead in the common
+          case when heartbeat monitoring is not useful.  Set this value to
+          <code>true</code> to enable keepalive <ref column="keepalive"/>
+          column or to <code>false</code> to explicitly disable it.
+        </column>
+
+        <column name="other_config" key="keepalive-interval"
+                type='{"type": "integer", "minInteger": 100}'>
+          <p>
+            Specifies the keepalive interval value in milliseconds.
+          </p>
+          <p>
+            If not specified, this will be set to 1000 milliseconds (default
+            value). Changing this value requires restarting the daemon.
+          </p>
+        </column>
+
+        <column name="keepalive" key="PMD_ID">
+          <p>
+            One such key-value pair, with <code>ID</code> replaced by the
+            PMD thread, will exist for each active PMD thread.  The value is a
+            comma-separated list of PMD thread status, core number and the
+            last seen timestamp of PMD thread.  In respective order, these
+            values are:
+          </p>
+
+          <ol>
+            <li>Status of PMD thread.  Valid status include ALIVE, MISSING,
+            DEAD, GONE, SLEEP.</li>
+            <li>Core id the PMD thread was scheduled.</li>
+            <li>Last seen timestamp(epoch) of the PMD thread.</li>
+          </ol>
+
+          <p>
+            This is only valid for OvS-DPDK Datapath and PMD threads status
+            is implemented currently.
+          </p>
+        </column>
+      </group>
     </group>
 
     <group title="Version Reporting">
