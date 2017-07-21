@@ -439,6 +439,118 @@ For certain traffic profiles with many parallel flows, it's recommended to set
 
 For more information on the EMC refer to :doc:`/intro/install/dpdk` .
 
+.. _dpdk_keepalive:
+
+Keepalive
+---------
+
+OvS Keepalive(KA) feature is disabled by default. To enable KA feature::
+
+    $ ovs-vsctl --no-wait set Open_vSwitch . other_config:enable-keepalive=true
+
+The KA feature can't be enabled at run time and should be done at startup
+before ovs-vswitchd daemon is started.
+
+The default timer interval for monitoring packet processing threads is 1000ms.
+To set a different timer value, run::
+
+    $ ovs-vsctl --no-wait set Open_vSwitch . \
+        other_config:keepalive-interval="5000"
+
+The events comprise of thread states and the last seen timestamps. The events
+are written in to process map periodically by keepalive thread.
+
+The events in the process map are retrieved by main(vswitchd) thread and
+updated in to keepalive column of Open_vSwitch table in OVSDB. Any external
+monitoring application can read the status from OVSDB at intervals or subscribe
+to the updates so that they get notified when the changes happen on OvSDB.
+
+To monitor the datapath status using ovsdb-client, run::
+
+    $ ovsdb-client monitor Open_vSwitch
+    $ ovsdb-client monitor Open_vSwitch Open_vSwitch keepalive
+
+The datapath thread states are explained below::
+
+      KA_STATE_UNUSED  - Not registered to KA framework.
+      KA_STATE_ALIVE   - Thread alive.
+      KA_STATE_MISSING - Thread missed first heartbeat.
+      KA_STATE_DEAD    - Thread missed two heartbeats.
+      KA_STATE_GONE    - Thread missed two or more heartbeats and burried.
+      KA_STATE_SLEEP   - Thread is sleeping.
+
+To query the datapath status, run::
+
+    $ ovs-appctl keepalive/pmd-health-show
+
+`collectd <https://collectd.org/>`__ has built-in support for DPDK and provides
+a `ovs_events` and `ovs_stats` plugin that can be enabled to relay the datapath
+status and the PMD status to OpenStack service `Ceilometer
+<https://docs.openstack.org/developer/ceilometer/>`__.
+
+To install and configure `collectd`, run::
+
+    # Clone collectd from Git repository
+    $ git clone https://github.com/collectd/collectd.git
+
+    # configure and install collectd
+    $ cd collectd
+    $ ./build.sh
+    $ ./configure --enable-syslog --enable-logfile --with-libdpdk=/usr
+    $ make
+    $ make install
+
+`collectd` is installed in ``/opt/collectd`` by default. Edit the configuration
+file in ``/opt/collectd/etc/collectd.conf`` to enable logfile, dpdkevents
+and csv plugin::
+
+   LoadPlugin logfile
+   <Plugin logfile>
+       LogLevel debug
+       File "/var/log/collectd/collectd.log"
+       Timestamp true
+       PrintSeverity false
+   </Plugin>
+
+   <Plugin syslog>
+       LogLevel info
+   </Plugin>
+
+Enable `ovs_events` plugin and update the plugindetails as below::
+
+   LoadPlugin ovs_events
+
+   <Plugin ovs_events>
+     Port "6640"
+     Address "127.0.0.1"
+     Socket "/usr/local/var/run/openvswitch/db.sock"
+     SendNotification true
+     DispatchValues false
+   </Plugin>
+
+Enable `ovs_stats` plugin and update the plugindetails as below::
+
+   LoadPlugin ovs_stats
+
+   <Plugin ovs_stats>
+     Port "6640"
+     Address "127.0.0.1"
+     Socket "/usr/local/var/run/openvswitch/db.sock"
+     Bridges "br0"
+   </Plugin>
+
+Enable ``csv`` plugin as below::
+
+   LoadPlugin csv
+
+   <Plugin csv>
+       DataDir "/var/log/collectd/csv"
+       StoreRates false
+   </Plugin>
+
+With csv plugin enabled, *meter* or *gauge* file is created and timestamp
+and thread status gets updated which are sent to ceilometer service.
+
 .. _dpdk-ovs-in-guest:
 
 OVS with DPDK Inside VMs
