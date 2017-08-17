@@ -19,6 +19,7 @@
 #include "keepalive.h"
 #include "lib/vswitch-idl.h"
 #include "openvswitch/vlog.h"
+#include "ovs-thread.h"
 #include "process.h"
 #include "seq.h"
 #include "timeval.h"
@@ -28,6 +29,9 @@ VLOG_DEFINE_THIS_MODULE(keepalive);
 static bool keepalive_enable = false;      /* Keepalive disabled by default. */
 static uint32_t keepalive_timer_interval;  /* keepalive timer interval. */
 static struct keepalive_info ka_info;
+
+static struct ovs_mutex mutex = OVS_MUTEX_INITIALIZER;
+static struct smap *keepalive_stats OVS_GUARDED_BY(mutex);
 
 /* Returns true if state update is allowed, false otherwise. */
 static bool
@@ -282,6 +286,65 @@ ka_mark_pmd_thread_sleep(int tid)
             }
         }
     }
+}
+
+static void
+get_pmd_status(struct smap *ka_pmd_stats)
+    OVS_REQUIRES(ka_info.proclist_mutex)
+{
+    struct ka_process_info *pinfo, *pinfo_next;
+    HMAP_FOR_EACH_SAFE (pinfo, pinfo_next, node, &ka_info.process_list) {
+        char *state = NULL;
+        if (pinfo->state == KA_STATE_UNUSED) {
+            continue;
+        }
+
+        switch (pinfo->state) {
+        case KA_STATE_ALIVE:
+            state = "ALIVE";
+            break;
+        case KA_STATE_MISSING:
+            state = "MISSING";
+            break;
+        case KA_STATE_DEAD:
+            state = "DEAD";
+            break;
+        case KA_STATE_GONE:
+            state = "GONE";
+            break;
+        case KA_STATE_SLEEP:
+            state = "SLEEP";
+            break;
+        case KA_STATE_UNUSED:
+            break;
+        default:
+            OVS_NOT_REACHED();
+        }
+
+        smap_add_format(ka_pmd_stats, pinfo->name, "%s,%d,%ld",
+                        state, pinfo->core_id, pinfo->last_seen_time);
+    }
+}
+
+void
+get_ka_stats(void)
+{
+    struct smap *ka_pmd_stats;
+    ka_pmd_stats = xmalloc(sizeof *ka_pmd_stats);
+    smap_init(ka_pmd_stats);
+
+    ovs_mutex_lock(&ka_info.proclist_mutex);
+    get_pmd_status(ka_pmd_stats);
+    ovs_mutex_unlock(&ka_info.proclist_mutex);
+
+    ovs_mutex_lock(&mutex);
+    if (keepalive_stats) {
+        smap_destroy(keepalive_stats);
+        free(keepalive_stats);
+        keepalive_stats = NULL;
+    }
+    keepalive_stats = ka_pmd_stats;
+    ovs_mutex_unlock(&mutex);
 }
 
 /* Dispatch heartbeats from 'ovs_keepalive' thread. */

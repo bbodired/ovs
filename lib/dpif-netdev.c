@@ -1076,6 +1076,7 @@ ovs_keepalive(void *f_)
         /* Dispatch heartbeats only if pmd[s] exist. */
         if (hb_enable) {
             dispatch_heartbeats();
+            get_ka_stats();
         }
 
         xnanosleep(interval * 1000 * 1000);
