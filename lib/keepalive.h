@@ -101,6 +101,7 @@ void ka_cache_registered_threads(void);
 void ka_mark_pmd_thread_alive(int);
 void ka_mark_pmd_thread_sleep(int);
 void get_ka_stats(void);
+struct smap *ka_stats_run(void);
 void dispatch_heartbeats(void);
 void ka_init(const struct smap *);
 void ka_destroy(void);

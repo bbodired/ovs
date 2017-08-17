@@ -286,6 +286,7 @@ static bool port_is_synthetic(const struct port *);
 
 static void reconfigure_system_stats(const struct ovsrec_open_vswitch *);
 static void run_system_stats(void);
+static void run_keepalive_stats(void);
 
 static void bridge_configure_mirrors(struct bridge *);
 static struct mirror *mirror_create(struct bridge *,
@@ -403,6 +404,7 @@ bridge_init(const char *remote)
 
     ovsdb_idl_omit_alert(idl, &ovsrec_open_vswitch_col_cur_cfg);
     ovsdb_idl_omit_alert(idl, &ovsrec_open_vswitch_col_statistics);
+    ovsdb_idl_omit_alert(idl, &ovsrec_open_vswitch_col_keepalive);
     ovsdb_idl_omit_alert(idl, &ovsrec_open_vswitch_col_datapath_types);
     ovsdb_idl_omit_alert(idl, &ovsrec_open_vswitch_col_iface_types);
     ovsdb_idl_omit(idl, &ovsrec_open_vswitch_col_external_ids);
@@ -2686,6 +2688,29 @@ run_system_stats(void)
     }
 }
 
+void
+run_keepalive_stats(void)
+{
+    struct smap *ka_stats;
+    const struct ovsrec_open_vswitch *cfg = ovsrec_open_vswitch_first(idl);
+
+    ka_stats = ka_stats_run();
+    if (ka_stats && cfg) {
+        struct ovsdb_idl_txn *txn;
+        struct ovsdb_datum datum;
+
+        txn = ovsdb_idl_txn_create(idl);
+        ovsdb_datum_from_smap(&datum, ka_stats);
+        smap_destroy(ka_stats);
+        ovsdb_idl_txn_write(&cfg->header_, &ovsrec_open_vswitch_col_keepalive,
+                            &datum);
+        ovsdb_idl_txn_commit(txn);
+        ovsdb_idl_txn_destroy(txn);
+
+        free(ka_stats);
+    }
+}
+
 static const char *
 ofp12_controller_role_to_str(enum ofp12_controller_role role)
 {
@@ -3039,6 +3064,7 @@ bridge_run(void)
     run_stats_update();
     run_status_update();
     run_system_stats();
+    run_keepalive_stats();
 }
 
 void

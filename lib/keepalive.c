@@ -347,6 +347,21 @@ get_ka_stats(void)
     ovs_mutex_unlock(&mutex);
 }
 
+struct smap *
+ka_stats_run(void)
+{
+    struct smap *ka_stats = NULL;
+
+    ovs_mutex_lock(&mutex);
+    if (keepalive_stats) {
+        ka_stats = keepalive_stats;
+        keepalive_stats = NULL;
+    }
+    ovs_mutex_unlock(&mutex);
+
+    return ka_stats;
+}
+
 /* Dispatch heartbeats from 'ovs_keepalive' thread. */
 void
 dispatch_heartbeats(void)
