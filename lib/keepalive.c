@@ -18,11 +18,13 @@
 
 #include "keepalive.h"
 #include "lib/vswitch-idl.h"
+#include "openvswitch/dynamic-string.h"
 #include "openvswitch/vlog.h"
 #include "ovs-thread.h"
 #include "process.h"
 #include "seq.h"
 #include "timeval.h"
+#include "unixctl.h"
 
 VLOG_DEFINE_THIS_MODULE(keepalive);
 
@@ -362,6 +364,98 @@ ka_stats_run(void)
     return ka_stats;
 }
 
+static void
+ka_unixctl_status(struct unixctl_conn *conn, int argc OVS_UNUSED,
+                  const char *argv[] OVS_UNUSED, void *aux OVS_UNUSED)
+{
+    struct ds ds = DS_EMPTY_INITIALIZER;
+
+    ds_put_format(&ds, "keepAlive Status: %s",
+                  ka_is_enabled() ? "Enabled" : "Disabled");
+
+    unixctl_command_reply(conn, ds_cstr(&ds));
+    ds_destroy(&ds);
+}
+
+static void
+ka_unixctl_pmd_health_show(struct unixctl_conn *conn, int argc OVS_UNUSED,
+                           const char *argv[] OVS_UNUSED, void *ka_info_)
+{
+    struct ds ds = DS_EMPTY_INITIALIZER;
+    ds_put_format(&ds,
+                  "\n\t\tKeepalive status\n\n");
+
+    ds_put_format(&ds, "keepalive status   : %s\n",
+                  ka_is_enabled() ? "Enabled" : "Disabled");
+
+    if (!ka_is_enabled()) {
+        goto out;
+    }
+
+    ds_put_format(&ds, "keepalive interval : %"PRIu32" ms\n",
+                  get_ka_interval());
+
+    char *utc = xastrftime_msec("%d %b %Y %H:%M:%S",
+                                    ka_info.init_time, true);
+    ds_put_format(&ds, "keepalive init time: %s \n", utc);
+
+    struct keepalive_info *ka_info = (struct keepalive_info *)ka_info_;
+    if (OVS_UNLIKELY(!ka_info)) {
+        goto out;
+    }
+
+    ds_put_format(&ds, "PMD threads        : %"PRIu32" \n", ka_info->thread_cnt);
+    ds_put_format(&ds,
+                  "\n PMD\tCORE\tSTATE\tLAST SEEN TIMESTAMP(UTC)\n");
+
+    struct ka_process_info *pinfo, *pinfo_next;
+
+    ovs_mutex_lock(&ka_info->proclist_mutex);
+    HMAP_FOR_EACH_SAFE (pinfo, pinfo_next, node, &ka_info->process_list) {
+        char *state = NULL;
+
+        if (pinfo->state == KA_STATE_UNUSED) {
+            continue;
+        }
+
+        switch (pinfo->state) {
+        case KA_STATE_ALIVE:
+            state = "ALIVE";
+            break;
+        case KA_STATE_MISSING:
+            state = "MISSING";
+            break;
+        case KA_STATE_DEAD:
+            state = "DEAD";
+            break;
+        case KA_STATE_GONE:
+            state = "GONE";
+            break;
+        case KA_STATE_SLEEP:
+            state = "SLEEP";
+            break;
+        case KA_STATE_UNUSED:
+            break;
+        default:
+            OVS_NOT_REACHED();
+        }
+
+        utc = xastrftime_msec("%d %b %Y %H:%M:%S",
+                                    pinfo->last_seen_time, true);
+
+        ds_put_format(&ds, "%s\t%2d\t%s\t%s\n",
+                      pinfo->name, pinfo->core_id, state, utc);
+
+        free(utc);
+    }
+    ovs_mutex_unlock(&ka_info->proclist_mutex);
+
+    ds_put_format(&ds, "\n");
+out:
+    unixctl_command_reply(conn, ds_cstr(&ds));
+    ds_destroy(&ds);
+}
+
 /* Dispatch heartbeats from 'ovs_keepalive' thread. */
 void
 dispatch_heartbeats(void)
@@ -423,6 +517,12 @@ ka_init(const struct smap *ovs_other_config)
             hmap_init(&ka_info.cached_process_list);
 
             ka_info.init_time = time_wall_msec();
+
+            unixctl_command_register("keepalive/status", "", 0, 0,
+                                      ka_unixctl_status, NULL);
+
+            unixctl_command_register("keepalive/pmd-health-show", "", 0, 0,
+                                      ka_unixctl_pmd_health_show, &ka_info);
 
             ovsthread_once_done(&once_enable);
         }
