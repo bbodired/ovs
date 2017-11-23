@@ -3646,7 +3646,7 @@ reconfigure_pmd_threads(struct dp_netdev *dp)
     FOR_EACH_CORE_ON_DUMP(core, pmd_cores) {
         pmd = dp_netdev_get_pmd(dp, core->core_id);
         if (!pmd) {
-            pmd = xzalloc(sizeof *pmd);
+            pmd = xzalloc_cacheline(sizeof *pmd);
             dp_netdev_configure_pmd(pmd, dp, core->core_id, core->numa_id);
             pmd->thread = ovs_thread_create("pmd", pmd_thread_main, pmd);
             VLOG_INFO("PMD thread on numa_id: %d, core id: %2d created.",
@@ -4574,7 +4574,7 @@ dp_netdev_destroy_pmd(struct dp_netdev_pmd_thread *pmd)
     xpthread_cond_destroy(&pmd->cond);
     ovs_mutex_destroy(&pmd->cond_mutex);
     ovs_mutex_destroy(&pmd->port_mutex);
-    free(pmd);
+    free_cacheline(pmd);
 }
 
 /* Stops the pmd thread, removes it from the 'dp->poll_threads',
