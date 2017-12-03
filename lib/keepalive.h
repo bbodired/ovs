@@ -48,6 +48,9 @@ enum keepalive_state {
 };
 
 struct ka_process_info {
+    /* Process name. */
+    char name[16];
+
     /* Thread id of the process, retrieved using ovs_gettid(). */
     pid_t tid;
 
@@ -71,15 +74,32 @@ struct keepalive_info {
     /* List of process/threads monitored by KA framework. */
     struct hmap process_list OVS_GUARDED;
 
+    /* cached copy of 'process_list' list. */
+    struct hmap cached_process_list;
+
+    /* count of threads registered to KA framework. */
+    uint32_t thread_cnt;
+
     /* Keepalive initialization time. */
     uint64_t init_time;
 
     /* keepalive relay handler. */
     ka_relay_cb relay_cb;
     void *relay_cb_data;
+
+    atomic_bool reload_threads;   /* Reload threads in to cached list. */
 };
 
 bool ka_is_enabled(void);
+uint32_t get_ka_interval(void);
+void ka_reload_datapath_threads_begin(void);
+void ka_reload_datapath_threads_end(void);
+void ka_register_thread(pid_t);
+void ka_unregister_thread(pid_t);
+void ka_free_cached_threads(void);
+void ka_cache_registered_threads(void);
+void ka_mark_pmd_thread_alive(int);
+void ka_mark_pmd_thread_sleep(int);
 void ka_init(const struct smap *);
 void ka_destroy(void);
 

@@ -597,6 +597,12 @@ thread_is_pmd(void)
     return !strncmp(name, "pmd", 3);
 }
 
+void
+ovsthread_set_tid(pid_t *tid)
+{
+    *tid = ovs_get_tid();
+}
+
 
 /* ovsthread_key. */
 

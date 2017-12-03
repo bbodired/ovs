@@ -26,6 +26,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
+#ifdef __FreeBSD__
+#include <sys/thr.h>
+#endif
 #include <unistd.h>
 #include "bitmap.h"
 #include "byte-order.h"
@@ -573,6 +579,22 @@ get_page_size(void)
     }
 
     return cached;
+}
+
+/* Returns the tid of the calling thread if supported, -EINVAL otherwise. */
+pid_t
+ovs_get_tid(void)
+{
+#ifdef __linux__
+    return syscall(SYS_gettid);
+#elif defined(__FreeBSD__) || defined(__NetBSD__)
+    long tid;
+    thr_self(&tid);
+    return (pid_t)tid;
+#endif
+
+    VLOG_ERR("ovs_get_tid(): unsupported.");
+    return -EINVAL;
 }
 
 /* Returns the time at which the system booted, as the number of milliseconds

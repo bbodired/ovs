@@ -524,5 +524,6 @@ bool may_fork(void);
 
 int count_cpu_cores(void);
 bool thread_is_pmd(void);
+void ovsthread_set_tid(pid_t *);
 
 #endif /* ovs-thread.h */

@@ -49,6 +49,7 @@
 #include "flow.h"
 #include "hmapx.h"
 #include "id-pool.h"
+#include "keepalive.h"
 #include "latch.h"
 #include "netdev.h"
 #include "netdev-vport.h"
@@ -619,8 +620,9 @@ struct dp_netdev_pmd_thread {
 
         unsigned core_id;            /* CPU core id of this pmd thread. */
         int numa_id;                 /* numa node id of this pmd thread. */
+        pid_t tid;                   /* PMD thread tid. */
 
-        /* 20 pad bytes. */
+        /* 16 pad bytes. */
     );
 
     PADDED_MEMBERS(CACHE_LINE_SIZE,
@@ -1053,6 +1055,72 @@ sorted_poll_thread_list(struct dp_netdev *dp,
 
     *list = pmd_list;
     *n = k;
+}
+
+static void *
+ovs_keepalive(void *f_ OVS_UNUSED)
+{
+    pthread_detach(pthread_self());
+
+    for (;;) {
+        uint64_t interval;
+
+        interval = get_ka_interval();
+        xnanosleep(interval * 1000 * 1000);
+    }
+
+    return NULL;
+}
+
+/* Kickstart 'ovs_keepalive' thread. */
+static void
+ka_thread_start(struct dp_netdev *dp)
+{
+    static struct ovsthread_once once = OVSTHREAD_ONCE_INITIALIZER;
+
+    if (ovsthread_once_start(&once)) {
+        ovs_thread_create("ovs_keepalive", ovs_keepalive, dp);
+
+        ovsthread_once_done(&once);
+    }
+}
+
+/* Register the datapath threads. This gets invoked on every datapath
+ * reconfiguration. The pmd thread[s] having rxq[s] mapped will be
+ * registered to KA framework.
+ */
+static void
+ka_register_datapath_threads(struct dp_netdev *dp)
+{
+    if (!ka_is_enabled()) {
+        return;
+    }
+
+    ka_thread_start(dp);
+
+    ka_reload_datapath_threads_begin();
+
+    struct dp_netdev_pmd_thread *pmd;
+    CMAP_FOR_EACH (pmd, node, &dp->poll_threads) {
+        /*  Register only PMD threads. */
+        if (pmd->core_id != NON_PMD_CORE_ID) {
+            /* Skip PMD thread with no rxqs mapping. */
+            if (OVS_UNLIKELY(!hmap_count(&pmd->poll_list))) {
+                /* Rxq mapping changes due to datapath reconfiguration.
+                 * If no rxqs mapped to PMD now due to reconfiguration,
+                 * unregister the pmd thread. */
+                ka_unregister_thread(pmd->tid);
+                continue;
+            }
+
+            ka_register_thread(pmd->tid);
+            VLOG_INFO("Registered PMD thread [%d] on Core[%d] to KA framework",
+                      pmd->tid, pmd->core_id);
+        }
+    }
+    ka_cache_registered_threads();
+
+    ka_reload_datapath_threads_end();
 }
 
 static void
@@ -3856,6 +3924,9 @@ reconfigure_datapath(struct dp_netdev *dp)
 
     /* Reload affected pmd threads. */
     reload_affected_pmds(dp);
+
+    /* Register datapath threads to KA monitoring. */
+    ka_register_datapath_threads(dp);
 }
 
 /* Returns true if one of the netdevs in 'dp' requires a reconfiguration */
@@ -4060,6 +4131,8 @@ pmd_thread_main(void *f_)
 
     /* Stores the pmd thread's 'pmd' to 'per_pmd_key'. */
     ovsthread_setspecific(pmd->dp->per_pmd_key, pmd);
+    /* Stores tid in to 'pmd->tid'. */
+    ovsthread_set_tid(&pmd->tid);
     ovs_numa_thread_setaffinity_core(pmd->core_id);
     dpdk_set_lcore_id(pmd->core_id);
     poll_cnt = pmd_load_queues_and_ports(pmd, &poll_list);
@@ -4092,6 +4165,9 @@ reload:
                                       process_packets ? PMD_CYCLES_PROCESSING
                                                       : PMD_CYCLES_IDLE);
         }
+
+        /* Mark PMD thread alive. */
+        ka_mark_pmd_thread_alive(pmd->tid);
 
         if (lc++ > 1024) {
             bool reload;
@@ -4126,6 +4202,9 @@ reload:
     }
 
     emc_cache_uninit(&pmd->flow_cache);
+
+    ka_unregister_thread(pmd->tid);
+
     free(poll_list);
     pmd_free_cached_ports(pmd);
     return NULL;
