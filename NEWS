@@ -13,6 +13,8 @@ Post-v2.8.0
      * ovn-ctl: New commands run_nb_ovsdb and run_sb_ovsdb.
    - Linux kernel 4.13
      * Add support for compiling OVS with the latest Linux 4.13 kernel
+   - Userspace Datapath:
+     * Added Keepalive support for userspace datapath.
 
 v2.8.0 - 31 Aug 2017
 --------------------
